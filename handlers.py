@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ContentType
 
 from keyboards import main_menu, folders_inline_keyboard, movies_pagination_keyboard, search_results_keyboard
 from states import AppStates
@@ -31,20 +31,44 @@ async def create_folder(message: Message, state: FSMContext):
     await state.clear()
 
 
-# --- VIDEO JOYLASH ---
+# --- 2. VIDEO JOYLASH (UNIVERSAL YECHIM) ---
 @router.message(F.text == "🎬 Video joylash")
 async def ask_video(message: Message, state: FSMContext):
     await message.answer("Videoni yuboring (yoki Forward qiling):")
     await state.set_state(AppStates.waiting_for_video)
 
 
-@router.message(AppStates.waiting_for_video, F.video)
+# BU YERDA O'ZGARISH: Biz ham Videoni, ham Documentni qabul qilamiz
+@router.message(AppStates.waiting_for_video, F.content_type.in_([ContentType.VIDEO, ContentType.DOCUMENT]))
 async def get_video(message: Message, state: FSMContext):
-    video_file_id = message.video.file_id
-    caption = message.caption or message.video.file_name or "Nomsiz kino"
+    # 1. Agar video sifatida yuborilgan bo'lsa
+    if message.video:
+        video_file_id = message.video.file_id
+        # Video nomini olishga harakat qilamiz
+        caption = message.caption or message.video.file_name or "Nomsiz Video"
 
+    # 2. Agar fayl (Document) sifatida yuborilgan bo'lsa (Sening holating)
+    elif message.document:
+        # Fayl video ekanligini tekshiramiz (mime_type orqali)
+        if message.document.mime_type and "video" not in message.document.mime_type:
+            await message.answer("Bu video fayl emasga o'xshaydi. Iltimos, video yuboring.")
+            return
+
+        video_file_id = message.document.file_id
+        caption = message.caption or message.document.file_name or "Nomsiz Kino"
+
+    else:
+        await message.answer("Iltimos, video fayl yuboring.")
+        return
+
+    # Ma'lumotlarni saqlab olamiz
     await state.update_data(video_file_id=video_file_id, caption=caption)
-    await message.answer("Qaysi papkaga saqlaymiz?", reply_markup=folders_inline_keyboard(action="save"))
+
+    # Papka tanlash tugmasini chiqaramiz
+    await message.answer(
+        f"✅ Qabul qilindi: {caption}\n\nEndi qaysi papkaga saqlaymiz?",
+        reply_markup=folders_inline_keyboard(action="save")
+    )
     await state.set_state(AppStates.selecting_folder_for_video)
 
 
