@@ -1,0 +1,4 @@
+__pycache__/
+.env
+movies.db
+.idea/
