@@ -3,83 +3,125 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database import db
 
 
-def main_menu() -> ReplyKeyboardMarkup:
+# --- AUTH MENU ---
+def auth_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📁 Papka yaratish"), KeyboardButton(text="🎬 Video joylash")],
-            [KeyboardButton(text="📂 Kinolarim")]
+            [KeyboardButton(text="🔐 Tizimga kirish"), KeyboardButton(text="®️ Ro'yxatdan o'tish")]
         ],
         resize_keyboard=True
     )
 
 
-def folders_inline_keyboard(action: str) -> InlineKeyboardMarkup:
-    folders = db.get_folders()
+# --- ASOSIY MENU (Logout qo'shildi) ---
+def main_menu() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📁 Papka yaratish"), KeyboardButton(text="📤 Fayl yuklash")],
+            [KeyboardButton(text="📂 Fayllarim"), KeyboardButton(text="🚪 Chiqish (Logout)")]
+        ],
+        resize_keyboard=True
+    )
+
+
+# --- FOLDERS (Userga bog'langan) ---
+def folders_paginated_keyboard(user_id: int, action: str, page: int = 1) -> InlineKeyboardMarkup:
+    """Faqat shu user_id ga tegishli papkalarni chiqaradi"""
+    PAGE_SIZE = 10
+    folders = db.get_folders_paginated(user_id, page, PAGE_SIZE)
+    total_folders = db.get_folders_count(user_id)
+
     builder = InlineKeyboardBuilder()
 
+    # 1. Papkalar
     for f_id, f_name in folders:
-        # action: "save" yoki "view"
         builder.button(text=f"📂 {f_name}", callback_data=f"folder:{action}:{f_id}")
 
     builder.adjust(2)
-    return builder.as_markup()
-
-
-def movies_pagination_keyboard(folder_id: int, page: int = 1) -> InlineKeyboardMarkup:
-    """
-    Pagination va Qidiruv tugmasi bor klaviatura.
-    """
-    PAGE_SIZE = 10
-    movies = db.get_movies_paginated(folder_id, page, PAGE_SIZE)
-    total_movies = db.get_movie_count(folder_id)
-
-    builder = InlineKeyboardBuilder()
-
-    # 1. Kino tugmalari
-    for movie_id, caption in movies:
-        display_name = caption if caption else f"Kino #{movie_id}"
-        builder.button(text=f"🎥 {display_name}", callback_data=f"movie:{movie_id}")
-
-    builder.adjust(1)  # Kinolar ustun bo'lib chiqadi
 
     # 2. Navigatsiya tugmalari
     nav_buttons = []
 
+    # Oldingi
     if page > 1:
-        nav_buttons.append(
-            InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"nav:{folder_id}:{page - 1}")
-        )
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"fold_nav:{action}:{page - 1}"))
 
-    nav_buttons.append(
-        InlineKeyboardButton(text=f"📄 {page}-sahifa", callback_data="ignore")
-    )
+    # Sahifa raqami
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}", callback_data="ignore"))
 
-    if total_movies > page * PAGE_SIZE:
-        nav_buttons.append(
-            InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"nav:{folder_id}:{page + 1}")
-        )
+    # Keyingi
+    if total_folders > page * PAGE_SIZE:
+        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"fold_nav:{action}:{page + 1}"))
 
-    # Navigatsiya tugmalarini qo'shamiz
+    # !!! XATOLIK TUZATILDI: row() ni faqat bir marta, oxirida chaqiramiz !!!
     builder.row(*nav_buttons)
 
-    # 3. Qidiruv tugmasi (YANGI)
-    builder.row(InlineKeyboardButton(text="🔍 Bu papkadan qidirish", callback_data=f"start_search:{folder_id}"))
+    # 3. Qo'shimcha tugmalar
+    builder.row(InlineKeyboardButton(text="🔍 Global Qidiruv", callback_data="start_global_search"))
 
-    # 4. Orqaga tugmasi
-    builder.row(InlineKeyboardButton(text="🔙 Papkalar ro'yxatiga", callback_data="back_to_folders"))
+    if action == "view":
+        builder.row(InlineKeyboardButton(text="❌ Yopish", callback_data="delete_msg"))
 
     return builder.as_markup()
 
 
+# --- QIDIRUV NATIJALARI ---
 def search_results_keyboard(results: list) -> InlineKeyboardMarkup:
-    """Qidiruv natijalari uchun klaviatura."""
+    builder = InlineKeyboardBuilder()
+    for db_id, file_id, file_name, file_type in results:
+        # Fayl turiga qarab ikonka qo'yamiz
+        icon = "📄"
+        if file_type == "video":
+            icon = "🎥"
+        elif file_type == "audio":
+            icon = "🎵"
+        elif file_type == "photo":
+            icon = "🖼"
+
+        builder.button(text=f"{icon} {file_name}", callback_data=f"file_dl:{db_id}")
+
+    builder.adjust(1)
+    builder.row(InlineKeyboardButton(text="❌ Yopish", callback_data="delete_msg"))
+    return builder.as_markup()
+
+
+
+def files_paginated_keyboard(folder_id: int, page: int = 1) -> InlineKeyboardMarkup:
+    """Papka ichidagi fayllarni sahifalab chiqarish"""
+    PAGE_SIZE = 10
+    files = db.get_files_paginated(folder_id, page, PAGE_SIZE)
+    total_files = db.get_file_count(folder_id)
+
     builder = InlineKeyboardBuilder()
 
-    for movie_id, caption in results:
-        builder.button(text=f"🎥 {caption}", callback_data=f"movie:{movie_id}")
+    # 1. Fayl tugmalari
+    for db_id, file_id, file_name, file_type in files:
+        icon = "📄"
+        if file_type == "video":
+            icon = "🎥"
+        elif file_type == "audio":
+            icon = "🎵"
+        elif file_type == "photo":
+            icon = "🖼"
+
+        # Callback: file_dl (download)
+        builder.button(text=f"{icon} {file_name}", callback_data=f"file_dl:{db_id}")
 
     builder.adjust(1)
 
-    builder.row(InlineKeyboardButton(text="❌ Qidiruvni yopish", callback_data="back_to_folders"))
+    # 2. Navigatsiya
+    nav_buttons = []
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"file_nav:{folder_id}:{page - 1}"))
+
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}", callback_data="ignore"))
+
+    if total_files > page * PAGE_SIZE:
+        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"file_nav:{folder_id}:{page + 1}"))
+
+    builder.row(*nav_buttons)
+
+    # 3. Orqaga qaytish
+    builder.row(InlineKeyboardButton(text="🔙 Papkalarga qaytish", callback_data="back_to_my_folders"))
 
     return builder.as_markup()
